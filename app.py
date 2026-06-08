@@ -161,7 +161,7 @@ st.altair_chart(layered_chart, use_container_width=True)
 
 # Status message below the chart
 if summary.mismatched_days == 0:
-    st.success("No red shading visible — all days reconcile perfectly.")
+    st.success("No red shading visible - all days reconcile perfectly.")
 else:
     st.warning(f"Red shading highlights {summary.mismatched_days} day(s) with discrepancies. First mismatch: {summary.first_mismatch_date}")
 
