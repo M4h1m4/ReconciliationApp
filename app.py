@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -91,17 +92,78 @@ st.subheader("Reconciliation Table")
 st.dataframe(display_df, use_container_width=True)
 
 
-# ─── Line Chart: Expected vs Bank Balance ─────────────────────────────────────
-# Plot both balance lines over time so divergence is immediately visible.
-# We always chart the full dataset (not the filtered display_df) so the user
-# can see the full trend even when the table is filtered to mismatches only.
-# Dates are set as the index so Streamlit uses them as the X-axis.
+# ─── Layered Altair Chart: Expected vs Bank Balance ───────────────────────────
+# A creative layered chart with three visual layers:
+# 1. A red shaded band between the two lines — the "gap".
+#    When balances match perfectly the gap is 0 and the red disappears entirely.
+#    When there is a mismatch the red area grows, making the discrepancy
+#    impossible to miss even at a glance.
+# 2. Two colored lines with dot markers at each date for precise reading.
+# 3. Interactive tooltips on hover showing exact values per day.
 st.subheader("Expected vs Bank Balance")
+
 chart_df = result_df[["date", "expected_balance", "bank_balance"]].copy()
 chart_df["expected_balance"] = _to_float_for_chart(chart_df["expected_balance"])
 chart_df["bank_balance"] = _to_float_for_chart(chart_df["bank_balance"])
-chart_df = chart_df.set_index("date")
-st.line_chart(chart_df)
+
+# Compute upper and lower bounds per day for the gap band.
+# When both values are equal the band has zero height and renders invisible.
+chart_df["upper"] = chart_df[["expected_balance", "bank_balance"]].max(axis=1)
+chart_df["lower"] = chart_df[["expected_balance", "bank_balance"]].min(axis=1)
+
+# Layer 1: red shaded gap area between the two lines
+gap_band = (
+    alt.Chart(chart_df)
+    .mark_area(color="#FF4B4B", opacity=0.25)
+    .encode(
+        x=alt.X("date:O", axis=alt.Axis(labelAngle=-45, title="Date")),
+        y=alt.Y("upper:Q", title="Balance ($)"),
+        y2=alt.Y2("lower:Q"),
+        tooltip=[
+            alt.Tooltip("date:O", title="Date"),
+            alt.Tooltip("upper:Q", title="Upper", format=",.2f"),
+            alt.Tooltip("lower:Q", title="Lower", format=",.2f"),
+        ],
+    )
+)
+
+# Layer 2: two lines with dot markers, one per series
+melted = chart_df.melt(
+    "date",
+    value_vars=["expected_balance", "bank_balance"],
+    var_name="series",
+    value_name="balance",
+)
+lines = (
+    alt.Chart(melted)
+    .mark_line(strokeWidth=2.5, point=alt.OverlayMarkDef(size=60))
+    .encode(
+        x=alt.X("date:O"),
+        y=alt.Y("balance:Q"),
+        color=alt.Color(
+            "series:N",
+            scale=alt.Scale(
+                domain=["bank_balance", "expected_balance"],
+                range=["#4C9BE8", "#F4A261"],
+            ),
+            legend=alt.Legend(title="Series"),
+        ),
+        tooltip=[
+            alt.Tooltip("date:O", title="Date"),
+            alt.Tooltip("series:N", title="Series"),
+            alt.Tooltip("balance:Q", title="Balance", format=",.2f"),
+        ],
+    )
+)
+
+layered_chart = (gap_band + lines).properties(height=380)
+st.altair_chart(layered_chart, use_container_width=True)
+
+# Status message below the chart
+if summary.mismatched_days == 0:
+    st.success("No red shading visible — all days reconcile perfectly.")
+else:
+    st.warning(f"Red shading highlights {summary.mismatched_days} day(s) with discrepancies. First mismatch: {summary.first_mismatch_date}")
 
 
 # ─── Download Button ──────────────────────────────────────────────────────────
